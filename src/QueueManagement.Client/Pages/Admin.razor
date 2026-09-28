@@ -1,0 +1,63 @@
+@page "/admin"
+@inject HttpClient Http
+
+<PageTitle>Branch Analytics</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Branch overview</p>
+        <h3>Queue performance</h3>
+    </div>
+</div>
+
+@if (summary is null)
+{
+    <div class="empty-panel">
+        <p>Loading branch metrics...</p>
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-md-3">
+            <div class="metric-card metric-blue">
+                <span>Total tickets</span>
+                <strong>@summary.TotalAppointments</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card metric-green">
+                <span>Active queue</span>
+                <strong>@summary.ActiveQueue</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card metric-orange">
+                <span>Average wait</span>
+                <strong>@summary.AverageWaitMinutes min</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card metric-slate">
+                <span>Service lines</span>
+                <strong>@summary.ServicesAvailable</strong>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardSummary? summary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        summary = await Http.GetFromJsonAsync<DashboardSummary>("https://localhost:7041/staff/dashboard") ?? new DashboardSummary
+        {
+            TotalAppointments = 0,
+            ActiveQueue = 0,
+            AverageWaitMinutes = 0,
+            ServicesAvailable = 0,
+            StaffCallsToday = 0
+        };
+    }
+}

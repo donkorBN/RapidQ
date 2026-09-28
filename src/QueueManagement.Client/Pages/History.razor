@@ -1,0 +1,129 @@
+@page "/history"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Transaction History</PageTitle>
+
+<div class="staff-interface">
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">History</p>
+            <h3>Previous Transactions</h3>
+        </div>
+        <button class="btn btn-secondary" type="button" @onclick="BackToDesk">Back To Desk</button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="empty-panel">
+            <p>Loading Transaction History...</p>
+        </div>
+    }
+    else if (history.Count == 0)
+    {
+        <div class="empty-panel">
+            <p>No Completed Or Missed Appointments Have Been Recorded Yet.</p>
+        </div>
+    }
+    else
+    {
+        <div class="history-layout">
+            <div class="table-wrap">
+                <table class="table table-modern">
+                    <thead>
+                        <tr>
+                            <th>Customer</th>
+                            <th>Service</th>
+                            <th>Queue</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in history)
+                        {
+                            <tr class="@(selectedItem?.Id == item.Id ? "selected-row" : string.Empty)" @onclick="() => SelectItem(item)">
+                                <td>@item.CustomerName</td>
+                                <td>@item.ServiceName</td>
+                                <td>@item.QueueCode</td>
+                                <td>@item.AppointmentDate.ToString("dd MMM yyyy")</td>
+                                <td>@item.TimeSlot</td>
+                                <td>@(item.ServiceDurationMinutes.HasValue ? $"{item.ServiceDurationMinutes} min" : "—")</td>
+                                <td>
+                                    <span class="status-badge status-@item.Status.ToString().ToLower()">@GetStatusLabel(item.Status)</span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (selectedItem is not null)
+            {
+                <aside class="info-panel customer-info-panel">
+                    <div class="info-card-block">
+                        <span class="mini-label">Customer Details</span>
+                        <h4>@selectedItem.CustomerName</h4>
+                        <ul>
+                            <li><strong>Queue:</strong> @selectedItem.QueueCode</li>
+                            <li><strong>Service:</strong> @selectedItem.ServiceName</li>
+                            <li><strong>Code:</strong> @selectedItem.ServiceCode</li>
+                            <li><strong>Branch:</strong> @selectedItem.BranchName</li>
+                            <li><strong>Email:</strong> @selectedItem.CustomerEmail</li>
+                            <li><strong>Phone:</strong> @selectedItem.CustomerPhone</li>
+                            <li><strong>Date:</strong> @selectedItem.AppointmentDate.ToString("dd MMM yyyy")</li>
+                            <li><strong>Time:</strong> @selectedItem.TimeSlot</li>
+                            <li><strong>Duration:</strong> @(selectedItem.ServiceDurationMinutes.HasValue ? $"{selectedItem.ServiceDurationMinutes} minutes" : "—")</li>
+                            <li><strong>Status:</strong> @GetStatusLabel(selectedItem.Status)</li>
+                            <li><strong>Served:</strong> @(selectedItem.ServedAt.HasValue ? selectedItem.ServedAt.Value.ToString("dd MMM yyyy, HH:mm") : "—")</li>
+                        </ul>
+                    </div>
+                </aside>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<AppointmentHistoryItem> history = new();
+    private AppointmentHistoryItem? selectedItem;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            history = await Http.GetFromJsonAsync<List<AppointmentHistoryItem>>("https://localhost:7041/staff/history") ?? new();
+            selectedItem ??= history.FirstOrDefault();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SelectItem(AppointmentHistoryItem item)
+    {
+        selectedItem = item;
+    }
+
+    private void BackToDesk()
+    {
+        Navigation.NavigateTo("/staff");
+    }
+
+    private static string GetStatusLabel(AppointmentStatus status)
+    {
+        return status switch
+        {
+            AppointmentStatus.Waiting => "Waiting",
+            AppointmentStatus.Called => "Called",
+            AppointmentStatus.Serving => "Serving",
+            AppointmentStatus.Served => "Served",
+            AppointmentStatus.Missed => "Missed",
+            _ => status.ToString()
+        };
+    }
+}

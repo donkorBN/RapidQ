@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QueueManagement.Api/QueueManagement.Api.csproj" />
+    <Project Path="src/QueueManagement.Client/QueueManagement.Client.csproj" />
+    <Project Path="src/QueueManagement.Shared/QueueManagement.Shared.csproj" />
+  </Folder>
+</Solution>
