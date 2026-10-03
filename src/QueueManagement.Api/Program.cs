@@ -119,7 +119,7 @@ app.UseAuthorization();
 app.MapGet("/api/health", () => new { Status = "ok", Timestamp = DateTime.UtcNow });
 
 var clientApi = app.MapGroup("/client");
-var staffApi = app.MapGroup("/staff");
+var staffApi = app.MapGroup("/staff").RequireAuthorization(policy => policy.RequireRole("Staff", "Admin"));
 var authApi = app.MapGroup("/auth");
 
 authApi.MapPost("/register", async (RegisterRequest req, UserManager<IdentityUser> userManager) =>
@@ -369,6 +369,21 @@ staffApi.MapPost("/queue/{appointmentId:int}/skip", async (int appointmentId, Qu
     }
 
     appointment.Status = AppointmentStatus.Missed;
+    await db.SaveChangesAsync();
+    await hub.Clients.All.SendAsync("QueueUpdated");
+    return Results.Ok(appointment);
+});
+
+staffApi.MapPost("/queue/{appointmentId:int}/recall", async (int appointmentId, QueueDbContext db, IHubContext<QueueHub> hub) =>
+{
+    var appointment = await db.Appointments.FirstOrDefaultAsync(a => a.Id == appointmentId);
+    if (appointment is null)
+    {
+        return Results.NotFound();
+    }
+
+    appointment.Status = AppointmentStatus.Waiting;
+    appointment.CalledAt = null;
     await db.SaveChangesAsync();
     await hub.Clients.All.SendAsync("QueueUpdated");
     return Results.Ok(appointment);
