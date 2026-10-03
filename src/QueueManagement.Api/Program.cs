@@ -1,5 +1,11 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using System.Security.Claims;
+using System.IdentityModel.Tokens.Jwt;
 using QueueManagement.Api;
 using QueueManagement.Api.Data;
 using QueueManagement.Api.Hubs;
@@ -26,6 +32,30 @@ var dbPath = DatabasePathProvider.ResolveDatabasePath(builder.Environment.Conten
 builder.Services.AddDbContext<QueueDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
+builder.Services.AddIdentity<IdentityUser, IdentityRole>()
+    .AddEntityFrameworkStores<QueueDbContext>()
+    .AddDefaultTokenProviders();
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+    };
+});
+builder.Services.AddAuthorization();
+
 builder.Services.AddSignalR();
 builder.Services.AddOpenApi();
 
@@ -51,6 +81,29 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<QueueDbContext>();
     db.Database.EnsureCreated();
     SeedData.Initialize(db);
+
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+
+    var roles = new[] { "Admin", "Staff", "Customer" };
+    foreach (var role in roles)
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new IdentityRole(role));
+        }
+    }
+
+    var adminEmail = "admin@rapidq.local";
+    if (await userManager.FindByEmailAsync(adminEmail) == null)
+    {
+        var adminUser = new IdentityUser { UserName = adminEmail, Email = adminEmail };
+        var result = await userManager.CreateAsync(adminUser, "Admin123!");
+        if (result.Succeeded)
+        {
+            await userManager.AddToRoleAsync(adminUser, "Admin");
+        }
+    }
 }
 
 if (app.Environment.IsDevelopment())
@@ -60,11 +113,68 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowClient");
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/api/health", () => new { Status = "ok", Timestamp = DateTime.UtcNow });
 
 var clientApi = app.MapGroup("/client");
 var staffApi = app.MapGroup("/staff");
+var authApi = app.MapGroup("/auth");
+
+authApi.MapPost("/register", async (RegisterRequest req, UserManager<IdentityUser> userManager) =>
+{
+    var user = new IdentityUser { UserName = req.Email, Email = req.Email };
+    var result = await userManager.CreateAsync(user, req.Password);
+    
+    if (result.Succeeded)
+    {
+        await userManager.AddToRoleAsync(user, req.Role);
+        return Results.Ok();
+    }
+    
+    return Results.BadRequest(result.Errors);
+});
+
+authApi.MapPost("/login", async (LoginRequest req, UserManager<IdentityUser> userManager, IConfiguration config) =>
+{
+    var user = await userManager.FindByEmailAsync(req.Email);
+    if (user != null && await userManager.CheckPasswordAsync(user, req.Password))
+    {
+        var roles = await userManager.GetRolesAsync(user);
+        
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.Name, user.Email!),
+            new Claim(ClaimTypes.Email, user.Email!)
+        };
+        
+        foreach (var role in roles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+        
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        
+        var token = new JwtSecurityToken(
+            issuer: config["Jwt:Issuer"],
+            audience: config["Jwt:Audience"],
+            claims: claims,
+            expires: DateTime.Now.AddDays(1),
+            signingCredentials: creds
+        );
+        
+        return Results.Ok(new AuthResponse
+        {
+            Token = new JwtSecurityTokenHandler().WriteToken(token),
+            Email = user.Email!,
+            Roles = roles
+        });
+    }
+    
+    return Results.Unauthorized();
+});
 
 clientApi.MapGet("/branches", async (QueueDbContext db) =>
     await db.Branches.OrderBy(b => b.Name).Take(1).ToListAsync());
@@ -266,4 +376,7 @@ staffApi.MapPost("/queue/{appointmentId:int}/skip", async (int appointmentId, Qu
 
 app.MapHub<QueueHub>("/queueHub");
 
+
 app.Run();
+
+public partial class Program { }
