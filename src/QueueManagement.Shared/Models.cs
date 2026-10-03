@@ -132,3 +132,12 @@ public class AdminAnalyticsResponse
     public DashboardSummary Summary { get; set; } = new();
     public List<ServiceDistributionItem> ServiceDistribution { get; set; } = new();
 }
+
+public class TrackResponse
+{
+    public string QueueCode { get; set; } = string.Empty;
+    public AppointmentStatus Status { get; set; }
+    public string ServiceName { get; set; } = string.Empty;
+    public DateTime ExpectedTime { get; set; }
+    public int PeopleAhead { get; set; }
+}

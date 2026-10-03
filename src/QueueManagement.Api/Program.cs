@@ -262,6 +262,29 @@ clientApi.MapPost("/tickets", async (CreateAppointmentRequest request, QueueDbCo
     });
 });
 
+clientApi.MapGet("/track/{queueCode}", async (string queueCode, QueueDbContext db) =>
+{
+    var appointment = await db.Appointments
+        .Include(a => a.Service)
+        .FirstOrDefaultAsync(a => a.QueueCode == queueCode);
+
+    if (appointment is null) return Results.NotFound();
+
+    var peopleAhead = await db.Appointments.CountAsync(a => 
+        a.Status == AppointmentStatus.Waiting && 
+        a.ServiceId == appointment.ServiceId &&
+        a.QueueNumber < appointment.QueueNumber);
+
+    return Results.Ok(new TrackResponse
+    {
+        QueueCode = appointment.QueueCode,
+        Status = appointment.Status,
+        ServiceName = appointment.Service?.Name ?? string.Empty,
+        ExpectedTime = appointment.AppointmentDate,
+        PeopleAhead = peopleAhead
+    });
+});
+
 staffApi.MapGet("/queue", async (QueueDbContext db) =>
     await db.Appointments
         .Include(a => a.Service)
