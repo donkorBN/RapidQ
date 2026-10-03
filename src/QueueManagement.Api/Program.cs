@@ -120,6 +120,7 @@ app.MapGet("/api/health", () => new { Status = "ok", Timestamp = DateTime.UtcNow
 
 var clientApi = app.MapGroup("/client");
 var staffApi = app.MapGroup("/staff").RequireAuthorization(policy => policy.RequireRole("Staff", "Admin"));
+var adminApi = app.MapGroup("/admin").RequireAuthorization(policy => policy.RequireRole("Admin"));
 var authApi = app.MapGroup("/auth");
 
 authApi.MapPost("/register", async (RegisterRequest req, UserManager<IdentityUser> userManager) =>
@@ -390,6 +391,83 @@ staffApi.MapPost("/queue/{appointmentId:int}/recall", async (int appointmentId, 
 });
 
 app.MapHub<QueueHub>("/queueHub");
+
+adminApi.MapGet("/analytics", async (QueueDbContext db) =>
+{
+    var appointments = await db.Appointments.Include(a => a.Service).ToListAsync();
+    var activeQueue = appointments.Count(a => a.Status != AppointmentStatus.Served && a.Status != AppointmentStatus.Missed);
+
+    var distribution = appointments
+        .Where(a => a.Service != null)
+        .GroupBy(a => a.Service!.Name)
+        .Select(g => new ServiceDistributionItem { ServiceName = g.Key, Count = g.Count() })
+        .ToList();
+
+    return new AdminAnalyticsResponse
+    {
+        Summary = new DashboardSummary
+        {
+            TotalAppointments = appointments.Count,
+            ActiveQueue = activeQueue,
+            StaffCallsToday = appointments.Count(a => a.Status == AppointmentStatus.Called || a.Status == AppointmentStatus.Serving),
+            ServicesAvailable = await db.Services.CountAsync(),
+            AverageWaitMinutes = activeQueue == 0 ? 0 : Math.Max(5, activeQueue * 7)
+        },
+        ServiceDistribution = distribution
+    };
+});
+
+adminApi.MapGet("/services", async (QueueDbContext db) => await db.Services.ToListAsync());
+adminApi.MapPost("/services", async (ServiceItem service, QueueDbContext db) =>
+{
+    db.Services.Add(service);
+    await db.SaveChangesAsync();
+    return Results.Created($"/admin/services/{service.Id}", service);
+});
+adminApi.MapPut("/services/{id:int}", async (int id, ServiceItem service, QueueDbContext db) =>
+{
+    var existing = await db.Services.FindAsync(id);
+    if (existing is null) return Results.NotFound();
+    existing.Name = service.Name;
+    existing.ServiceCode = service.ServiceCode;
+    existing.Description = service.Description;
+    existing.BranchId = service.BranchId;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+adminApi.MapDelete("/services/{id:int}", async (int id, QueueDbContext db) =>
+{
+    var existing = await db.Services.FindAsync(id);
+    if (existing is null) return Results.NotFound();
+    db.Services.Remove(existing);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+
+adminApi.MapGet("/branches", async (QueueDbContext db) => await db.Branches.ToListAsync());
+adminApi.MapPost("/branches", async (Branch branch, QueueDbContext db) =>
+{
+    db.Branches.Add(branch);
+    await db.SaveChangesAsync();
+    return Results.Created($"/admin/branches/{branch.Id}", branch);
+});
+adminApi.MapPut("/branches/{id:int}", async (int id, Branch branch, QueueDbContext db) =>
+{
+    var existing = await db.Branches.FindAsync(id);
+    if (existing is null) return Results.NotFound();
+    existing.Name = branch.Name;
+    existing.Location = branch.Location;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+adminApi.MapDelete("/branches/{id:int}", async (int id, QueueDbContext db) =>
+{
+    var existing = await db.Branches.FindAsync(id);
+    if (existing is null) return Results.NotFound();
+    db.Branches.Remove(existing);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
 
 
 app.Run();

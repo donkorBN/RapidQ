@@ -120,3 +120,15 @@ public class AuthResponse
     public string Email { get; set; } = string.Empty;
     public IList<string> Roles { get; set; } = new List<string>();
 }
+
+public class ServiceDistributionItem
+{
+    public string ServiceName { get; set; } = string.Empty;
+    public int Count { get; set; }
+}
+
+public class AdminAnalyticsResponse
+{
+    public DashboardSummary Summary { get; set; } = new();
+    public List<ServiceDistributionItem> ServiceDistribution { get; set; } = new();
+}
